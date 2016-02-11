@@ -1,0 +1,10 @@
+# Testing for
+# No first assignment
+# Wrong syntax
+
+proc main ():
+# Read a number and write from the first expression, to the second.
+	int num = read()
+	for i = 2 + num to num + 7:
+		write(num) .
+.

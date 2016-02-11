@@ -1,0 +1,10 @@
+# Testing for
+# First expression changed
+# Correct syntax
+
+proc main ():
+# Read a number and write from the first expression, to the second.
+	int num = read()
+	for i = 2 + 3 to num:
+		write(num) .
+.

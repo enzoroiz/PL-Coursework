@@ -1,0 +1,10 @@
+# Testing for
+# Simple for
+# Correct syntax
+
+proc main ():
+	for i = 2 to 5:
+		write(i)
+	.
+	write(i)
+.

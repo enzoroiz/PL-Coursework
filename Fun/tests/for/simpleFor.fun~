@@ -1,0 +1,10 @@
+# Testing for
+# Simple for
+# Correct syntax and context
+
+proc main ():
+	int i = 3
+	for i = true to 19:
+		write(i)
+	.
+.

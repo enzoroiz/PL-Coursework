@@ -1,0 +1,13 @@
+# Testing for
+# No first assignment
+# Wrong syntax
+
+proc main ():
+# Read a number and write from the first expression, to the second.
+	int num = read()
+	while num + 3:
+		write(num)
+	.
+.
+
+# OUTPUT: line 8:7 mismatched input 'to' expecting ASSN

@@ -1,0 +1,11 @@
+# Testing for
+# No first assignment
+# Wrong syntax
+
+proc main ():
+	for i to 5:
+		write(num)
+	.
+.
+
+# OUTPUT: line 8:7 mismatched input 'to' expecting ASSN

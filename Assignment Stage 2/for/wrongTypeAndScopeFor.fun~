@@ -1,0 +1,13 @@
+# Testing for
+# Right type and scope for
+# Correct syntax and context
+
+proc main ():
+	int num = 1
+	for i = false to true:
+		write(i)
+		num = num + i
+	.
+	write(i)
+	write(num)
+.

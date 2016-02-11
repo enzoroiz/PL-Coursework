@@ -1,0 +1,398 @@
+//////////////////////////////////////////////////////////////
+//
+// Specification of the Fun code generator.
+//
+// Developed June 2012 by David Watt (University of Glasgow).
+// EXTENSION: Enzo Roiz - ID:2161561 - Date: 24/11/2014
+//
+//////////////////////////////////////////////////////////////
+
+//############################################################
+// 		       
+//		      CODE TEMPLATES
+//
+//############################################################		 
+//			FOR COMMAND
+//############################################################
+//
+//	for n = 1 to 5:
+//		write(n)
+//	.
+//
+//    ...
+// 4: LOADC   1		- [code to declare the control variable "n = 1"]
+// 7: LOADC   5		- [code to evaluate "n to 5 (n < 5 + 1)"]
+// 10: LOADL   2	- [code to evaluate "n to 5 (n < 5 + 1)"]
+// 13: CMPLT   		- [code to evaluate "n to 5 (n < 5 + 1)"]
+// 14: JUMPT   33	- [code to jump out of the for loop]
+// 17: LOADL   2	- [code to execute "write(n)"]
+// 20: CALL    32767	- [code to execute "write(n)"]
+// 23: LOADL   2	- [code to increment "n" by 1]
+// 26: INC     		- [code to increment "n" by 1]
+// 27: STOREL  2	- [code to increment "n" by 1]
+// 30: JUMP    7	- [code to jump to the for command's expressions evaluation]
+// 33: RETURN  0
+
+
+//#############################################################
+//			 REPEAT UNTIL
+//#############################################################
+//
+//	int n = 1
+//	repeat:
+//		write(n)
+//		n = n + 1
+//	until(n < 5).
+//
+//    ...
+// 4: LOADC   1 	- [code to execute "int n = 1"]
+// 7: LOADL   2 	- [code to execute "write(n)"]
+// 10: CALL    32767 	- [code to execute "write(n)"]
+// 13: LOADL   2	- [code to evaluate "n + 1"]
+// 16: LOADC   1	- [code to evaluate "n + 1"]
+// 19: ADD     		- [code to evaluate "n + 1"]
+// 20: STOREL  2	- [code to assign "n = n + 1"]
+// 23: LOADL   2	- [code to evaluate "n < 5"]
+// 26: LOADC   5	- [code to evaluate "n < 5"]
+// 29: CMPLT   		- [code to evaluate "n < 5"]
+// 30: JUMPF   36	- [code to jump out of the repeat until loop]
+// 33: JUMP    7	- [code to execute the repeat until command's body]
+// 36: RETURN  0
+
+tree grammar FunEncoder;
+
+// This specifies the Fun -> SVM code generator.
+
+
+options {
+	tokenVocab = Fun;
+	ASTLabelType = CommonTree;
+}
+
+
+//////// Auxiliary variables and methods
+
+@members {
+
+	private SVM obj = new SVM();
+
+	private int globalvaraddr = 0;
+	private int localvaraddr = 0;
+	private int currentLocale = Address.GLOBAL;
+
+	private SymbolTable<Address> addrTable =
+	   new SymbolTable<Address>();
+
+	private void predefine () {
+	// Add predefined procedures to the address table.
+		addrTable.put("read",
+		   new Address(SVM.READOFFSET, Address.CODE));
+		addrTable.put("write",
+		   new Address(SVM.WRITEOFFSET, Address.CODE));
+	}
+
+}
+
+
+//////// Programs
+
+program			returns [SVM objectprogram]
+	:	^(PROG
+				{ predefine();
+				}
+		  var_decl*
+				{ int calladdr =
+				    obj.currentOffset();
+				  obj.emit12(SVM.CALL, 0);
+				  obj.emit1(SVM.HALT);
+				}
+		  proc_decl+
+				{ int mainaddr =
+				    addrTable.get("main").offset;
+				  obj.patch12(calladdr, mainaddr);
+				  $objectprogram = obj;
+				}
+		 )
+	;
+
+
+//////// Declarations
+
+proc_decl
+	:	^(PROC
+		  ID
+				{ String id = $ID.text;
+				  Address procaddr = new Address(
+				    obj.currentOffset(), Address.CODE);
+				  addrTable.put(id, procaddr);
+				  addrTable.enterLocalScope();
+				  currentLocale = Address.LOCAL;
+				  localvaraddr = 2;
+				  // ... allows 2 words for link data
+				}
+		  formal
+		  var_decl*
+		  com
+				{ obj.emit11(SVM.RETURN, 0);
+				  addrTable.exitLocalScope();
+				  currentLocale = Address.GLOBAL;
+				}
+		 )
+	|	^(FUNC
+		  type
+		  ID
+				{ String id = $ID.text;
+				  Address procaddr = new Address(
+				    obj.currentOffset(), Address.CODE);
+				  addrTable.put(id, procaddr);
+				  addrTable.enterLocalScope();
+				  currentLocale = Address.LOCAL;
+				  localvaraddr = 2;
+				  // ... allows 2 words for link data
+				}
+		  formal
+		  var_decl*
+		  com
+		  expr
+				{ obj.emit11(SVM.RETURN, 1);
+				  addrTable.exitLocalScope();
+				  currentLocale = Address.GLOBAL;
+				}
+		 )
+	;
+
+formal
+	:	^(FORMAL
+		  type
+		  ID
+				{ String id = $ID.text;
+				  addrTable.put(id, new Address(
+				    localvaraddr++, Address.LOCAL));
+				  obj.emit11(SVM.COPYARG, 1); 
+				}
+		 )
+	|	NOFORMAL
+	;
+
+var_decl
+	:	^(VAR
+		  type
+		  ID
+		  expr
+				{ String id = $ID.text;
+				  switch (currentLocale) {
+				    case Address.LOCAL:
+				      addrTable.put(id, new Address(
+				        localvaraddr++, Address.LOCAL));
+				      break;
+				    case Address.GLOBAL:
+				      addrTable.put(id, new Address(
+				        globalvaraddr++, Address.GLOBAL));
+				  }
+				}
+		 )
+	;
+
+for_var_decl			returns [int addr]					// EXTENSION FOR	
+	:	^(FORVAR								// EXTENSION FOR
+		  INT									// EXTENSION FOR
+		  ID									// EXTENSION FOR
+		  expr									// EXTENSION FOR
+				{ String id = $ID.text;					// EXTENSION FOR
+				      addrTable.put(id, new Address(			// EXTENSION FOR
+				        localvaraddr++, Address.LOCAL));		// EXTENSION FOR
+				  $addr = addrTable.get(id).offset;			// EXTENSION FOR
+				}							// EXTENSION FOR
+		 )									// EXTENSION FOR
+	;										// EXTENSION FOR
+
+type
+	:	BOOL
+	|	INT
+	;
+
+
+//////// Commands
+
+com
+	:	^(ASSN
+		  ID
+		  expr
+				{ String id = $ID.text;
+				  Address varaddr = addrTable.get(id);
+				  switch (varaddr.locale) {
+				    case Address.GLOBAL:
+				      obj.emit12(SVM.STOREG,
+				        varaddr.offset);
+				      break;
+				    case Address.LOCAL:
+				      obj.emit12(SVM.STOREL,
+				        varaddr.offset);
+				  }
+				}
+		 )
+	|	^(PROCCALL
+		  ID
+		  expr
+				{ String id = $ID.text;
+				  Address procaddr = addrTable.get(id);
+				  // Assume procaddr.locale == CODE.
+				  obj.emit12(SVM.CALL,
+				    procaddr.offset);
+				}
+		 )
+	|	^(IF
+		  expr
+				{ int condaddr = obj.currentOffset();
+				  obj.emit12(SVM.JUMPF, 0);
+				}
+		  com
+				{ int exitaddr = obj.currentOffset();
+				  obj.patch12(condaddr, exitaddr);
+				}
+		 )
+	|	^(IFELSE
+		  expr
+				{ int condaddr = obj.currentOffset();
+				  obj.emit12(SVM.JUMPF, 0);
+				}
+		  com
+				{ int jumpaddr = obj.currentOffset();
+				  obj.emit12(SVM.JUMP, 0);
+				  int elseaddr = obj.currentOffset();
+				  obj.patch12(condaddr, elseaddr);
+				}
+		  com
+				{ int exitaddr = obj.currentOffset();
+				  obj.patch12(jumpaddr, exitaddr);
+				}
+		 )
+	|	^(WHILE
+				{ int startaddr = obj.currentOffset();
+				}
+		   expr
+				{ int condaddr = obj.currentOffset();
+				  obj.emit12(SVM.JUMPF, 0);
+				}
+		   com
+				{ obj.emit12(SVM.JUMP, startaddr);
+				  int exitaddr = obj.currentOffset();
+				  obj.patch12(condaddr, exitaddr);
+				}
+		 )
+	|	^(REPEAT								// EXTENSION REPEAT UNTIL
+				{ int startaddr = obj.currentOffset();			// EXTENSION REPEAT UNTIL
+				}							// EXTENSION REPEAT UNTIL
+		   com									// EXTENSION REPEAT UNTIL
+											// EXTENSION REPEAT UNTIL
+		   expr									// EXTENSION REPEAT UNTIL
+				{ int condaddr = obj.currentOffset();			// EXTENSION REPEAT UNTIL
+				  obj.emit12(SVM.JUMPF, 0);				// EXTENSION REPEAT UNTIL
+				  obj.emit12(SVM.JUMP, startaddr);			// EXTENSION REPEAT UNTIL
+				  int exitaddr = obj.currentOffset();			// EXTENSION REPEAT UNTIL
+				  obj.patch12(condaddr, exitaddr);			// EXTENSION REPEAT UNTIL
+				}							// EXTENSION REPEAT UNTIL
+		 )									// EXTENSION REPEAT UNTIL
+	|	^(FOR									// EXTENSION FOR
+		   identaddr = for_var_decl						// EXTENSION FOR						
+				{ int jumpaddr = obj.currentOffset();			// EXTENSION FOR
+				}							// EXTENSION FOR
+											// EXTENSION FOR
+		   expr		{ 							// EXTENSION FOR
+				  obj.emit12(SVM.LOADL, identaddr);			// EXTENSION FOR
+				  obj.emit1(SVM.CMPLT);					// EXTENSION FOR
+				  int condaddr = obj.currentOffset();			// EXTENSION FOR
+			  	  obj.emit12(SVM.JUMPT, 0);				// EXTENSION FOR
+				}							// EXTENSION FOR
+											// EXTENSION FOR
+		   com 		{ obj.emit12(SVM.LOADL, identaddr);			// EXTENSION FOR
+				  obj.emit1(SVM.INC);					// EXTENSION FOR
+				  obj.emit12(SVM.STOREL, identaddr);			// EXTENSION FOR
+				  obj.emit12(SVM.JUMP, jumpaddr);			// EXTENSION FOR
+			  	  int exitaddr = obj.currentOffset();			// EXTENSION FOR
+			  	  obj.patch12(condaddr, exitaddr);			// EXTENSION FOR
+				}							// EXTENSION FOR
+		 )									// EXTENSION FOR
+	|	^(SEQ
+		  com*
+		 )
+	;
+
+
+//////// Expressions
+
+expr
+	:	FALSE
+				{ obj.emit12(SVM.LOADC, 0); }
+	|	TRUE
+				{ obj.emit12(SVM.LOADC, 1); }
+	|	NUM
+				{ int value =
+				    Integer.parseInt($NUM.text);
+				  obj.emit12(SVM.LOADC, value);
+				}
+	|	ID
+				{ String id = $ID.text;
+				  Address varaddr = addrTable.get(id);
+				  switch (varaddr.locale) {
+				    case Address.GLOBAL:
+				      obj.emit12(SVM.LOADG,
+				        varaddr.offset);
+				      break;
+				    case Address.LOCAL:
+				      obj.emit12(SVM.LOADL,
+				        varaddr.offset);
+				  }
+				}
+	|	^(FUNCCALL
+		  ID
+		  expr
+				{ String id = $ID.text;
+				  Address funcaddr = addrTable.get(id);
+				  // Assume that funcaddr.locale == CODE.
+				  obj.emit12(SVM.CALL,
+				    funcaddr.offset);
+				}
+		 )
+	|	^(EQ
+		  expr
+		  expr
+				{ obj.emit1(SVM.CMPEQ); }
+		 )
+	|	^(LT
+		  expr
+		  expr
+				{ obj.emit1(SVM.CMPLT); }
+		 )
+	|	^(GT
+		  expr
+		  expr
+				{ obj.emit1(SVM.CMPGT); }
+		 )
+	|	^(PLUS
+		  expr
+		  expr
+				{ obj.emit1(SVM.ADD); }
+		 )
+	|	^(MINUS
+		  expr
+		  expr
+				{ obj.emit1(SVM.SUB); }
+		 )
+	|	^(TIMES
+		  expr
+		  expr
+				{ obj.emit1(SVM.MUL); }
+		 )
+	|	^(DIV
+		  expr
+		  expr
+				{ obj.emit1(SVM.DIV); }
+		 )
+	|	^(NOT
+		  expr
+				{ obj.emit1(SVM.INV); }
+		 )
+	|	NOACTUAL
+				{ }
+	;
